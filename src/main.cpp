@@ -55,6 +55,15 @@ String prepareHTML(int val)
     return page;
 }
 
+String prepareForm()
+{
+    String page = String("HTTP/1.1 200 OK\r\n") +
+            "Content-Type: text/html; charset=ascii\r\n" + 
+            "Connection: close\r\n\r\n" + 
+            #include "form.html.inc"
+            return page;
+}
+
 String sendFavicon()
 {
         String page = String("HTTP/1.1 200 OK\r\n") +
@@ -115,6 +124,39 @@ void retState(WiFiClient &client)
     }
 }
 
+const int maxClients = 10;
+WiFiClient clientList[maxClients];
+bool enableds[maxClients] = {false};
+
+void pushClient(WiFiClient& client)
+{
+    for(int i = 0; i < maxClients; i++ )
+    {
+        if(enableds[i] == false)
+        {
+            enableds[i] = true;
+            clientList[i] = client;
+            break;
+        }
+    }
+}
+
+void checkClients()
+{
+    for(int i = 0; i < maxClients; i++)
+    {
+        if (enableds[i] == true)
+        {
+            if(!clientList[i].available())
+            {
+                enableds[i] = false;
+                clientList[i].stop();
+                Serial.printf("Client: %d disconnected\n", i);
+            }
+        }
+    }
+}
+
 void setup() {
     // put your setup code here, to run once:
     Serial.begin(115200);
@@ -123,17 +165,30 @@ void setup() {
     stateVar = LOW;
     digitalWrite(RELAY, LOW);
 
+    for(int i = 0; i < maxClients; i++)
+    {
+        enableds[i] = false;
+    }
+
     delay(2000);
+    int numNets = WiFi.scanNetworks();
+    for(int i = 0; i < numNets; i++)
+    {
+        Serial.println(WiFi.SSID(i));
+    }
+
     Serial.printf("Connecting to %s", ssid);
 
     
     WiFi.mode((WiFiMode_t)(1));
-    WiFi.setOutputPower(0.0f);
+    WiFi.setOutputPower(20.5f);
     WiFi.begin(ssid, password);
     while(WiFi.status() != WL_CONNECTED)
     {
         delay(500);
         Serial.print(".");
+
+        
     }
     WiFi.config(staticIP, gateway, subnetMask);
     Serial.println(" connected");
@@ -146,17 +201,19 @@ void setup() {
 }   
 
 
-
 void loop() {
     // put your main code here, to run repeatedly:
+    checkClients();
+
     WiFiClient client = server.available();
     if(!client)
     {
         return;
     }
-        Serial.printf("Client Connected from %s \n", client.remoteIP().toString().c_str());
+    Serial.printf("Client Connected from %s \n", client.remoteIP().toString().c_str());
     
-    String line = client.readStringUntil('\r');
+    // String line = client.readStringUntil('\r');
+    String line = client.readString();
     Serial.println(line);
     client.flush();
 
@@ -168,35 +225,19 @@ void loop() {
         client.write(favicon,318 );
         client.println("\r\n");
         delay(1);
-        client.stop();
-        Serial.println("Client Disconnected");
-        return;
+    }
+    if (int index = line.indexOf("/A?") != -1)
+    {
+        Serial.println("+");
+        Serial.println(line.substring(index + 6, line.indexOf("HTTP/1.1")));
+        Serial.println("+");
+        client.println(prepareHTML(0));
     }  
-    else if (line.indexOf("/RELAY=ON") != -1)  
-    {
-        stateVar = LOW;
-        digitalWrite(RELAY,LOW);
-        retState(client);
-    }
-    else if (line.indexOf("/RELAY=OFF") != -1)  
-    {
-        stateVar = HIGH;
-        digitalWrite(RELAY,HIGH);
-        retState(client);
-    }
-    else if (line.indexOf("/RELAYGET") != -1)  
-    {
-        retState(client);
-    }
     else
     {
-        client.println(prepareHTML(1));
+        client.println(prepareForm());
     }
 
-
-    delay(10);
-
-    client.stop();
-    Serial.println("Client Disconnected");
+    pushClient(client);
 
 }
